@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApp, useLoader, useRequireUser } from "../lib/app";
-import { CATEGORY_LABEL, co2SavedKg, isPast, money, num, perSeat, relText, whenText } from "../lib/format";
+import { CATEGORY_LABEL, co2SavedKg, isPast, num, priceText, relText, seatPrice, whenText } from "../lib/format";
 import { drivingRoute } from "../lib/geo";
+import { SchoolName } from "../lib/schools";
 import type { LatLng, Message, Participant, Review, Ride, SeatRequest } from "../lib/types";
 import { Avatar, Dialog, Empty, StarInput, Stars } from "../components/Bits";
 import { CategoryIcon, IconBack, IconCalendar, IconChat, IconLeaf, IconLock, IconPin, IconSend, IconUnlock } from "../components/Icons";
@@ -49,7 +50,7 @@ export function RideDetail() {
   const offer = r.kind === "offer";
   const seats = num(r.seats) || 1;
   const full = offer && r.taken >= seats;
-  const price = perSeat(r);
+  const price = seatPrice(r);
   const past = isPast(r.depart_at);
   const ownerName = mine ? "You" : r.owner?.display_name || "A student";
   const hasMap = r.origin_lat != null && r.dest_lat != null;
@@ -77,7 +78,7 @@ export function RideDetail() {
 
           <div className="facts">
             {offer ? (
-              <div className="fact"><b>{price != null ? money(price) : "Ask"}</b><span>{price != null ? "per seat with the car full" : "driver will set the split"}</span></div>
+              <div className="fact"><b>{priceText(price)}</b><span>{price ? "per seat, set by the driver" : price === 0 ? "the driver isn't charging" : "message the driver for the price"}</span></div>
             ) : (
               <div className="fact"><b>{seats}</b><span>{seats === 1 ? "seat needed" : "seats needed"}</span></div>
             )}
@@ -97,7 +98,7 @@ export function RideDetail() {
             <Avatar name={ownerName} id={r.owner_id} size={46} />
             <div>
               <b>{ownerName}</b>
-              <small>{[r.owner?.college, offer ? "Driver" : "Rider"].filter(Boolean).join(" · ")}</small>
+              <small>{r.owner?.school && <><SchoolName domain={r.owner.school} /> · </>}{[r.owner?.college, offer ? "Driver" : "Rider"].filter(Boolean).join(" · ")}</small>
               {owner.data && <span className="owner-rating"><Stars value={owner.data.avg_stars} size={14} /> {owner.data.rating_count ? `${owner.data.avg_stars?.toFixed(1)} · ${owner.data.rating_count} ${owner.data.rating_count === 1 ? "review" : "reviews"}` : "New on Wayfellow"}</span>}
             </div>
             <span className="go">Profile →</span>
@@ -139,7 +140,7 @@ export function RideDetail() {
                   <Avatar name={q.rider?.display_name || "?"} id={q.rider_id} size={34} />
                   <div className="who">
                     <Link to={`/u/${q.rider_id}`}><b>{q.rider?.display_name || "A student"}</b></Link>
-                    <small>{[q.rider?.college, q.message].filter(Boolean).join(" · ") || "No message"}</small>
+                    <small>{q.rider?.school && <><SchoolName domain={q.rider.school} /> · </>}{[q.rider?.college, q.message].filter(Boolean).join(" · ") || "No message"}</small>
                   </div>
                   {q.status === "pending" && !past ? (
                     <div className="req-actions">
@@ -187,7 +188,7 @@ function RequestDialog({ open, ride, onClose, onDone }: { open: boolean; ride: R
   return (
     <Dialog open={open} onClose={onClose} title={offer ? "Request a seat" : "Offer to drive"} narrow>
       <form className="form-grid" onSubmit={submit} noValidate>
-        <p className="lead">{ride.origin} to {ride.destination}, {whenText(ride.depart_at)}. They'll see your name{profile?.college ? ", college," : ""} and this message.</p>
+        <p className="lead">{ride.origin} to {ride.destination}, {whenText(ride.depart_at)}. They'll see your name, school{profile?.college ? ", dorm or major," : ""} and this message.</p>
         <div className="field full"><label htmlFor="rqMsg">Message</label><textarea id="rqMsg" maxLength={200} placeholder={offer ? "Hi! One backpack, happy to pitch in for gas." : "I'm driving that way, happy to take you."} value={msg} onChange={e => setMsg(e.target.value)} autoFocus /><span className="hint">Optional, but people say yes faster when you say hi.</span></div>
         {err && <p className="err">{err}</p>}
         <div className="form-actions full"><button type="button" className="btn btn-line" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy}>{offer ? "Send request" : "Send offer"}</button></div>
@@ -251,7 +252,7 @@ function RateRide({ ride, meId, people }: { ride: Ride; meId: string; people: Pa
       <h3 className="panel-title">How was the ride?</h3>
       {others.map(p => (
         <div className="rate-row" key={p.id}>
-          <div className="rate-who"><Avatar name={p.display_name} id={p.id} size={32} /><b>{p.display_name}</b><small>{p.is_owner ? "Driver" : "Rider"}</small></div>
+          <div className="rate-who"><Avatar name={p.display_name} id={p.id} size={32} /><b>{p.display_name}</b><small>{p.school && <><SchoolName domain={p.school} /> · </>}{p.is_owner ? "Driver" : "Rider"}</small></div>
           {done.has(p.id) ? <p className="muted">Thanks, your rating is in.</p> : (
             <>
               <StarInput value={stars[p.id] ?? 0} onChange={n => setStars(s => ({ ...s, [p.id]: n }))} label={`Rate ${p.display_name}`} />
@@ -278,7 +279,7 @@ function downloadIcs(r: Ride) {
   const f = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   const esc = (s: string) => s.replace(/[\\;,]/g, m => "\\" + m).replace(/\n/g, "\\n");
   const ics = [
-    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Wayfellow//Campus rides//EN", "BEGIN:VEVENT",
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Wayfellow//College rides//EN", "BEGIN:VEVENT",
     `UID:${r.id}@wayfellow`, `DTSTAMP:${f(new Date())}`, `DTSTART:${f(start)}`, `DTEND:${f(end)}`,
     `SUMMARY:${esc(`Ride: ${r.origin} → ${r.destination}`)}`,
     `LOCATION:${esc(r.pickup_note || r.origin)}`,

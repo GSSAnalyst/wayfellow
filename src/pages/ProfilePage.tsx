@@ -1,5 +1,6 @@
 import { useParams } from "react-router-dom";
 import { useApp, useLoader } from "../lib/app";
+import { SchoolName } from "../lib/schools";
 import { Avatar, Empty, Stars } from "../components/Bits";
 
 export function ProfilePage() {
@@ -21,7 +22,7 @@ export function ProfilePage() {
         <Avatar name={p.display_name} id={p.id} size={84} />
         <div>
           <h1 className="page-title">{p.display_name}{isMe && <span className="pill you">You</span>}</h1>
-          {p.college && <p className="sub">{p.college}</p>}
+          {(p.school || p.college) && <p className="sub">{p.school && <SchoolName domain={p.school} />}{p.school && p.college && " · "}{p.college}</p>}
           <div className="owner-rating big"><Stars value={s?.avg_stars ?? null} size={20} /> {s?.rating_count ? `${s.avg_stars?.toFixed(1)} from ${s.rating_count} ${s.rating_count === 1 ? "review" : "reviews"}` : "No reviews yet"}</div>
         </div>
         {isMe && <button className="btn btn-line btn-sm" onClick={() => setProfileOpen(true)}>Edit profile</button>}

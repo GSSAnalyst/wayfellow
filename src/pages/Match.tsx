@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp, useLoader, useRequireUser } from "../lib/app";
-import { CONFIG } from "../lib/config";
+import { nearOf } from "../lib/area";
 import { localDateInput, num } from "../lib/format";
 import { haversineMiles } from "../lib/geo";
 import type { Ride, SeatRequest } from "../lib/types";
+import { AreaBar } from "../components/AreaBar";
 import { Empty, Skeletons } from "../components/Bits";
 import { IconSpark } from "../components/Icons";
 import { PlacePicker, type PlaceValue } from "../components/PlacePicker";
@@ -17,11 +18,12 @@ const NEAR_MILES = 30;
 interface Hit { ride: Ride; destMiles: number | null; dayDiff: number; score: number }
 
 export function Match() {
-  const { api, me, setSignInOpen } = useApp();
+  const { api, me, setSignInOpen, area } = useApp();
   const nav = useNavigate();
   const requireUser = useRequireUser();
   const canSee = api.mode === "demo" || !!me;
-  const rides = useLoader(() => (canSee ? api.listRides() : Promise.resolve([] as Ride[])), [api, canSee]);
+  const near = nearOf(area);
+  const rides = useLoader(() => (canSee ? api.listRides(near) : Promise.resolve([] as Ride[])), [api, canSee, near?.center[0], near?.center[1], near?.miles]);
   const reqs = useLoader(() => (canSee ? api.myRequests() : Promise.resolve({} as Record<string, SeatRequest>)), [api, canSee, me?.id]);
 
   const [to, setTo] = useState<PlaceValue>({ label: "", lat: null, lng: null });
@@ -61,13 +63,14 @@ export function Match() {
       <div className="match-hero">
         <span className="eyebrow"><IconSpark size={16} /> Smart match</span>
         <h1 className="page-title">Where are you headed?</h1>
-        <p className="sub">We'll find drivers going near your destination around your date, even if they typed it differently.</p>
+        <p className="sub">We'll find drivers leaving near you and going near your destination around your date, even if they typed it differently.</p>
       </div>
 
       {!canSee ? (
-        <Empty title="Sign in to find rides" action={<button className="btn btn-primary" onClick={() => setSignInOpen(true)}>Sign in</button>}>Matching uses the live board, which is only visible to signed-in {CONFIG.campusName} students.</Empty>
+        <Empty title="Sign in to find rides" action={<button className="btn btn-primary" onClick={() => setSignInOpen(true)}>Sign in</button>}>Matching uses the live board, which is only visible to students signed in with a .edu email.</Empty>
       ) : (
         <>
+          <AreaBar />
           <div className="panel match-form">
             <div className="match-to"><PlacePicker label="Destination" value={to} onChange={setTo} placeholder="SFO, LA, Tahoe, home…" /></div>
             <div className="field"><label htmlFor="mDate">Around</label><input id="mDate" type="date" min={localDateInput()} value={date} onChange={e => setDate(e.target.value)} /></div>
@@ -91,7 +94,7 @@ export function Match() {
               <Empty title="No drivers heading there yet" action={<button className="btn btn-primary" onClick={() => requireUser(() => nav(askUrl))}>Post a ride request</button>}>
                 Post a request and drivers going that way can offer you a seat.
               </Empty>
-            ) : hits.map(h => <RideCard key={h.ride.id} ride={h.ride} meId={me?.id} myReq={reqs.data?.[h.ride.id]} badge={badge(h)} highlight={hover === h.ride.id} onHover={setHover} />)}
+            ) : hits.map((h, i) => <RideCard key={h.ride.id} index={i} ride={h.ride} meId={me?.id} myReq={reqs.data?.[h.ride.id]} badge={badge(h)} highlight={hover === h.ride.id} onHover={setHover} />)}
           </div>
           {searched && hits.length > 0 && <p className="muted center top-gap">Not quite right? <button className="text-btn inline" onClick={() => requireUser(() => nav(askUrl))}>Post a ride request</button> so drivers can find you.</p>}
         </>

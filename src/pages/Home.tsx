@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp, useLoader, useRequireUser } from "../lib/app";
-import { CONFIG } from "../lib/config";
-import { CATEGORIES, money, num, perSeat, relText } from "../lib/format";
+import { nearOf } from "../lib/area";
+import { useReveal, useTilt } from "../lib/motion";
+import { CATEGORIES, num, priceText, relText, seatPrice } from "../lib/format";
 import type { Category, Ride, SeatRequest } from "../lib/types";
 import type { ReactNode } from "react";
+import { AreaBar } from "../components/AreaBar";
 import { Empty, Skeletons } from "../components/Bits";
 import { DemoBanner } from "../components/Chrome";
-import { GasCalculator } from "../components/GasCalculator";
 import { HeroRoad } from "../components/HeroRoad";
 import { CategoryIcon, IconLeaf, IconList, IconLock, IconMail, IconMap, IconSearch, IconShield, IconChat } from "../components/Icons";
 import { RideCard } from "../components/RideCard";
@@ -15,13 +16,25 @@ import { RideMap, type MapRoute } from "../components/RideMap";
 
 type KindFilter = "all" | "offer" | "want" | "mine";
 
+const Hero3D = lazy(() => import("../components/Hero3D"));
+const hasWebGL = () => { try { return !!document.createElement("canvas").getContext("webgl2"); } catch { return false; } };
+
+/** The 3D highway, with the 2D canvas while it loads or if WebGL isn't available. */
+function HeroScene() {
+  const [failed, setFailed] = useState(() => !hasWebGL());
+  const fail = useCallback(() => setFailed(true), []);
+  if (failed) return <HeroRoad />;
+  return <Suspense fallback={<HeroRoad />}><Hero3D onFail={fail} /></Suspense>;
+}
+
 export function Home() {
-  const { api, me, ready, setSignInOpen } = useApp();
+  const { api, me, ready, setSignInOpen, area } = useApp();
   const nav = useNavigate();
   const requireUser = useRequireUser();
   const canSee = api.mode === "demo" || !!me;
 
-  const rides = useLoader(() => (canSee ? api.listRides() : Promise.resolve([] as Ride[])), [api, canSee]);
+  const near = nearOf(area);
+  const rides = useLoader(() => (canSee ? api.listRides(near) : Promise.resolve([] as Ride[])), [api, canSee, near?.center[0], near?.center[1], near?.miles]);
   const reqs = useLoader(() => (canSee ? api.myRequests() : Promise.resolve({} as Record<string, SeatRequest>)), [api, canSee, me?.id]);
   useEffect(() => {
     if (!canSee) return;
@@ -49,15 +62,17 @@ export function Home() {
     .map(r => ({ id: r.id, from: [r.origin_lat!, r.origin_lng!], to: [r.dest_lat!, r.dest_lng!], path: r.route, kind: r.kind, label: `${r.origin} → ${r.destination}`, highlight: hover === r.id })), [list, hover]);
 
   const post = (k: "offer" | "want") => requireUser(() => nav(`/post?kind=${k}`));
+  useReveal();
 
   return (
     <>
       <section className="hero">
-        <HeroRoad />
+        <HeroScene />
         <div className="wrap hero-grid">
-          <div>
-            <h1>Everyone's going somewhere. Ride together.</h1>
-            <p className="lede">A ride board just for {CONFIG.campusName} students. Post a trip, grab a seat, chat with your driver, and split the gas without the group-chat chaos.</p>
+          <div className="hero-copy">
+            <span className="hero-kicker"><i /> Live across US campuses</span>
+            <h1>Everyone's going somewhere. <span className="hl-text">Ride together.</span></h1>
+            <p className="lede">A ride board for college students across the US. Post a trip, grab a seat, chat with your driver, and pay what the driver asks without the group-chat chaos.</p>
             <div className="ctas">
               <button className="btn btn-hud" onClick={() => post("offer")}>I'm driving</button>
               <button className="btn btn-night" onClick={() => nav("/match")}>Find me a ride</button>
@@ -71,7 +86,7 @@ export function Home() {
 
       <section className="block" id="board">
         <div className="wrap">
-          <div className="head">
+          <div className="head" data-reveal>
             <div>
               <h2>The ride board</h2>
               <p className="sub">Request a seat and the driver decides. Contact details and the ride chat unlock once you're approved.</p>
@@ -80,9 +95,10 @@ export function Home() {
           </div>
 
           {!canSee ? (
-            <div className="grid"><Empty title="Sign in to see the board" action={<button className="btn btn-primary" onClick={() => setSignInOpen(true)}>Sign in with campus email</button>}>Rides are only visible to students signed in with an @{CONFIG.campusDomain} email.</Empty></div>
+            <div className="grid"><Empty title="Sign in to see the board" action={<button className="btn btn-primary" onClick={() => setSignInOpen(true)}>Sign in with your .edu email</button>}>Rides are only visible to students signed in with a school .edu email.</Empty></div>
           ) : (
             <>
+              <AreaBar />
               <div className="filters">
                 <div className="chips" role="group" aria-label="Trip type">
                   <button className="chip" aria-pressed={cat === "all"} onClick={() => setCat("all")}>Everything</button>
@@ -116,35 +132,28 @@ export function Home() {
                   <Empty title="Couldn't load rides" action={<button className="btn btn-primary" onClick={rides.reload}>Try again</button>}>Check your connection and try again.</Empty>
                 ) : list.length === 0 ? (
                   <Empty
-                    title={(rides.data ?? []).length ? "Nothing matches that" : "The board is empty"}
+                    title={(rides.data ?? []).length ? "Nothing matches that" : near ? "No rides leaving near you yet" : "The board is empty"}
                     action={<button className="btn btn-primary" onClick={() => post(kind === "want" ? "want" : "offer")}>{(rides.data ?? []).length ? "Post a ride" : "Post the first ride"}</button>}
                   >
-                    {(rides.data ?? []).length ? "Try a different filter, or post the ride you're looking for so drivers can find you." : "Be the first. Post a trip you're driving, or ask for a ride and see who bites."}
+                    {(rides.data ?? []).length ? "Try a different filter, or post the ride you're looking for so drivers can find you." : near ? "Widen the distance above, or be the first to post from your area." : "Be the first. Post a trip you're driving, or ask for a ride and see who bites."}
                   </Empty>
-                ) : list.map(r => <RideCard key={r.id} ride={r} meId={me?.id} myReq={reqs.data?.[r.id]} highlight={hover === r.id} onHover={view === "map" ? setHover : undefined} />)}
+                ) : list.map((r, i) => <RideCard key={r.id} index={i} ride={r} meId={me?.id} myReq={reqs.data?.[r.id]} highlight={hover === r.id} onHover={view === "map" ? setHover : undefined} />)}
               </div>
             </>
           )}
         </div>
       </section>
 
-      <section className="block tight" id="split">
-        <div className="wrap">
-          <div className="head"><div><h2>Split the gas</h2><p className="sub">Settle the math before you leave the lot.</p></div></div>
-          <GasCalculator />
-        </div>
-      </section>
-
       <section className="block tight" id="privacy">
         <div className="wrap">
-          <div className="privacy">
+          <div className="privacy" data-reveal>
             <div className="privacy-intro">
               <IconShield size={64} className="privacy-mark" />
               <h2>Built so strangers can't see you</h2>
               <p className="sub">Privacy is enforced by the database's own rules, not just hidden on the page. Even someone poking at the API gets nothing they shouldn't.</p>
             </div>
             <div className="points">
-              <Point icon={<IconMail size={22} />} title="Campus email only">Sign-in is a one-time link sent to your @{CONFIG.campusDomain} inbox. No passwords to leak, and the database rejects anyone without a campus address.</Point>
+              <Point icon={<IconMail size={22} />} title="Students only">Sign-in is a one-time link sent to your school .edu inbox. No passwords to leak, and the database rejects anyone without a .edu address. Every post shows the poster's school.</Point>
               <Point icon={<IconLock size={22} />} title="Contact details stay sealed">Your phone or handle is shown only to riders you approve. Everyone else sees a locked field.</Point>
               <Point icon={<IconChat size={22} />} title="Private ride chat">Only the driver and approved riders can read or send messages in a ride's chat.</Point>
               <Point icon={<IconShield size={22} />} title="Encrypted in transit and at rest">Every connection runs over HTTPS, and Supabase encrypts the stored database at rest.</Point>
@@ -162,6 +171,7 @@ function Point({ icon, title, children }: { icon: ReactNode; title: string; chil
 
 function Hud({ rides, signedOut }: { rides: Ride[] | null; signedOut: boolean }) {
   const nav = useNavigate();
+  const tilt = useTilt<HTMLElement>(9);
   const offers = useMemo(() => (rides ?? []).filter(r => r.kind === "offer" && new Date(r.depart_at).getTime() > Date.now() && r.taken < num(r.seats)).slice(0, 5), [rides]);
   const [i, setI] = useState(0);
   useEffect(() => {
@@ -173,10 +183,10 @@ function Hud({ rides, signedOut }: { rides: Ride[] | null; signedOut: boolean })
   const seatsMoving = (rides ?? []).filter(r => r.kind === "offer").reduce((s, r) => s + Math.min(r.taken, num(r.seats)), 0);
   const kg = Math.round((rides ?? []).filter(r => r.kind === "offer").reduce((s, r) => s + num(r.miles) * 0.404 * r.taken, 0));
   const r = offers.length ? offers[i % offers.length] : null;
-  const p = r ? perSeat(r) : null;
+  const p = r ? seatPrice(r) : null;
 
   return (
-    <aside className="hud" aria-label="Next departure">
+    <aside className="hud tilt" ref={tilt} aria-label="Next departure">
       <div className="hud-top"><span className="live"><i />Next departure</span><span>{offers.length ? `${offers.length} ${offers.length === 1 ? "ride" : "rides"}` : ""}</span></div>
       {r ? (
         <button className="hud-body" key={r.id} onClick={() => nav(`/ride/${r.id}`)}>
@@ -184,7 +194,7 @@ function Hud({ rides, signedOut }: { rides: Ride[] | null; signedOut: boolean })
           <div className="hud-meta">
             <div><b>{relText(r.depart_at).replace(/^in /, "")}</b><span>Leaves in</span></div>
             <div><b>{num(r.seats) - r.taken}</b><span>Seats open</span></div>
-            <div><b>{p != null ? money(p) : "Ask"}</b><span>Per seat</span></div>
+            <div><b>{priceText(p)}</b><span>Per seat</span></div>
           </div>
         </button>
       ) : (

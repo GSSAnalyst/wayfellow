@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApp } from "../lib/app";
-import { CATEGORIES, localDateInput, money, num, perSeat } from "../lib/format";
+import { CATEGORIES, localDateInput, num } from "../lib/format";
 import { drivingRoute } from "../lib/geo";
 import type { Category, Kind, LatLng } from "../lib/types";
 import { Empty } from "../components/Bits";
@@ -28,8 +28,7 @@ export function PostRide() {
   const [seats, setSeats] = useState(kind === "offer" ? 3 : 1);
   const [miles, setMiles] = useState("");
   const [milesAuto, setMilesAuto] = useState(false);
-  const [mpg, setMpg] = useState("30");
-  const [gas, setGas] = useState("4.90");
+  const [price, setPrice] = useState("");
   const [pickup, setPickup] = useState("");
   const [note, setNote] = useState("");
   const [contact, setContact] = useState("");
@@ -53,20 +52,21 @@ export function PostRide() {
   }, [from.lat, from.lng, to.lat, to.lng]);
 
   if (ready && api.mode === "live" && !me) {
-    return <div className="wrap page"><Empty title="Sign in to post a ride" action={<button className="btn btn-primary" onClick={() => setSignInOpen(true)}>Sign in</button>}>Only signed-in campus students can post.</Empty></div>;
+    return <div className="wrap page"><Empty title="Sign in to post a ride" action={<button className="btn btn-primary" onClick={() => setSignInOpen(true)}>Sign in</button>}>Only students signed in with a .edu email can post.</Empty></div>;
   }
   if (ready && me && !profile) {
     return <div className="wrap page"><Empty title="Set up your profile first" action={<button className="btn btn-primary" onClick={() => setProfileOpen(true)}>Set up profile</button>}>Riders and drivers see your name before saying yes.</Empty></div>;
   }
 
-  const preview = perSeat({ kind: "offer", miles: num(miles), mpg: num(mpg), gas_price: num(gas), seats });
-
   async function submit(e: FormEvent) {
     e.preventDefault();
     const depart = new Date(`${date}T${time || "09:00"}`);
     if (!from.label.trim() || !to.label.trim()) return setErr("Add where the trip starts and where it's headed.");
+    if (from.lat == null || from.lng == null) return setErr("Pick the starting point from the suggestions, use your location, or drop a pin, so students nearby can find your ride.");
     if (Number.isNaN(depart.getTime())) return setErr("Pick a date and time.");
     if (depart.getTime() < Date.now() - 5 * 6e4) return setErr("That time has already passed. Pick a later one.");
+    const priceN = price.trim() === "" ? null : Number(price);
+    if (kind === "offer" && priceN != null && !(priceN >= 0 && priceN < 1000)) return setErr("Enter a price per seat between $0 and $999, or leave it blank.");
     if (!contact.trim()) return setErr("Add a phone number or handle so approved people can reach you.");
     setBusy(true); setErr("");
     try {
@@ -77,8 +77,7 @@ export function PostRide() {
         route, pickup_note: pickup.trim() || null,
         depart_at: depart.toISOString(), seats,
         miles: num(miles) || null,
-        mpg: kind === "offer" ? num(mpg) || null : null,
-        gas_price: kind === "offer" ? num(gas) || null : null,
+        price: kind === "offer" && priceN != null ? Math.round(priceN * 100) / 100 : null,
         note: note.trim() || null,
       }, contact.trim());
       toast(kind === "offer" ? "Ride posted" : "Request posted");
@@ -112,8 +111,13 @@ export function PostRide() {
             <input id="pMiles" type="number" min={1} inputMode="decimal" placeholder={routing ? "Measuring…" : "Optional"} value={miles} onChange={e => { setMiles(e.target.value); setMilesAuto(false); }} />
             {milesAuto && <span className="hint">Measured from the driving route</span>}
           </div>
-          {kind === "offer" && <div className="field"><label htmlFor="pMpg">Car's MPG</label><input id="pMpg" type="number" min={1} step={0.5} inputMode="decimal" value={mpg} onChange={e => setMpg(e.target.value)} /></div>}
-          {kind === "offer" && <div className="field"><label htmlFor="pGas">Gas ($/gal)</label><input id="pGas" type="number" min={0} step={0.01} inputMode="decimal" value={gas} onChange={e => setGas(e.target.value)} /></div>}
+          {kind === "offer" && (
+            <div className="field">
+              <label htmlFor="pPrice">Price per seat ($)</label>
+              <input id="pPrice" type="number" min={0} max={999} step={0.5} inputMode="decimal" placeholder="Leave blank to discuss" value={price} onChange={e => setPrice(e.target.value)} />
+              <span className="hint">Your call. Enter 0 for a free ride.</span>
+            </div>
+          )}
           <div className="field full"><label htmlFor="pPickup">Pickup spot</label><input id="pPickup" maxLength={120} placeholder="By the Porter bus stop" value={pickup} onChange={e => setPickup(e.target.value)} /></div>
           <div className="field full"><label htmlFor="pNote">Note</label><textarea id="pNote" maxLength={280} placeholder="One carry-on each. Coffee stop on the way." value={note} onChange={e => setNote(e.target.value)} /></div>
           <div className="field full">
@@ -121,7 +125,6 @@ export function PostRide() {
             <input id="pContact" maxLength={80} placeholder="Phone number or Instagram" value={contact} onChange={e => setContact(e.target.value)} />
             <span className="hint">Sealed. Only people you approve can see it.</span>
           </div>
-          {kind === "offer" && <div className="preview full"><span>Each seat pays, with the car full</span><b>{preview != null ? money(preview) : "Add the distance"}</b></div>}
           {err && <p className="err">{err}</p>}
           <div className="form-actions full"><button type="button" className="btn btn-line" onClick={() => nav(-1)}>Cancel</button><button className="btn btn-primary" disabled={busy}>{kind === "offer" ? "Post ride" : "Post request"}</button></div>
         </form>

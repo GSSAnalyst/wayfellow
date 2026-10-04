@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useApp } from "../lib/app";
-import { CONFIG, UCSC_COLLEGES } from "../lib/config";
 import { resetDemo } from "../lib/demoApi";
+import { schoolOf, useSchoolName } from "../lib/schools";
 import { Avatar, Dialog } from "./Bits";
 import { IconMail, Logo } from "./Icons";
 
@@ -12,7 +12,7 @@ export function Header() {
   return (
     <header className="bar">
       <div className="wrap">
-        <Link className="brand" to="/" aria-label="Wayfellow home"><Logo /> Wayfellow <span className="campus-tag">{CONFIG.campusName}</span></Link>
+        <Link className="brand" to="/" aria-label="Wayfellow home"><Logo /> Wayfellow</Link>
         <nav aria-label="Main">
           <NavLink className="nav-link" to="/" end>Board</NavLink>
           <NavLink className="nav-link" to="/match">Smart match</NavLink>
@@ -66,13 +66,13 @@ export function SignInDialog() {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (signInOpen) { setErr(""); setSent(false); } }, [signInOpen]);
-  const domain = CONFIG.campusDomain;
+  const school = useSchoolName(schoolOf(email));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     const v = email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+$/.test(v)) return setErr("Enter your full email address.");
-    if (!v.endsWith("@" + domain)) return setErr(`Use your @${domain} email. This board is for ${CONFIG.campusName} students only.`);
+    if (!schoolOf(v)) return setErr("Use your school email ending in .edu. Wayfellow is for US college students.");
     setBusy(true); setErr("");
     try { await api.sendMagicLink(v); setSent(true); }
     catch (ex) { setErr(/rate|seconds/i.test(String((ex as Error)?.message)) ? "Too many tries. Wait a minute, then send another link." : "Couldn't send the link. Check the address and try again."); }
@@ -85,8 +85,12 @@ export function SignInDialog() {
         <div className="sent"><IconMail size={52} /><h3>Check your inbox</h3><p>We sent a sign-in link to {email.trim()}. Open it on this device to finish.</p></div>
       ) : (
         <form onSubmit={submit} className="form-grid" noValidate>
-          <p className="lead">We'll email a one-time link to your @{domain} address. No password needed.</p>
-          <div className="field full"><label htmlFor="sEmail">Campus email</label><input id="sEmail" type="email" autoComplete="email" placeholder={`you@${domain}`} value={email} onChange={e => setEmail(e.target.value)} autoFocus /></div>
+          <p className="lead">We'll email a one-time link to your school .edu address. No password needed.</p>
+          <div className="field full">
+            <label htmlFor="sEmail">School email</label>
+            <input id="sEmail" type="email" autoComplete="email" placeholder="you@yourschool.edu" value={email} onChange={e => setEmail(e.target.value)} autoFocus aria-describedby="sSchool" />
+            <small id="sSchool" className="muted" aria-live="polite">{school ? `Signing in as a student at ${school}` : "\u00a0"}</small>
+          </div>
           {err && <p className="err">{err}</p>}
           <div className="form-actions full"><button type="button" className="btn btn-line" onClick={() => setSignInOpen(false)}>Cancel</button><button className="btn btn-primary" disabled={busy}>Email me a sign-in link</button></div>
         </form>
@@ -106,6 +110,7 @@ export function ProfileDialog() {
     if (profileOpen) { setName(profile?.display_name ?? ""); setCollege(profile?.college ?? ""); setAlerts(profile?.email_alerts ?? true); setErr(""); }
   }, [profileOpen, profile]);
   const first = !profile;
+  const schoolName = useSchoolName(profile?.school ?? (me ? schoolOf(me.email) : null));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -120,11 +125,11 @@ export function ProfileDialog() {
     <Dialog open={profileOpen} onClose={() => setProfileOpen(false)} title={first ? "Set up your profile" : "Your profile"} narrow>
       <form onSubmit={submit} className="form-grid" noValidate>
         <p className="lead">Drivers and riders see this on requests and in chat.</p>
+        {me && <p className="muted full">School: <b>{schoolName ?? "—"}</b> (from your email)</p>}
         <div className="field full"><label htmlFor="pName">Name</label><input id="pName" maxLength={40} autoComplete="given-name" placeholder="First name is fine" value={name} onChange={e => setName(e.target.value)} /></div>
         <div className="field full">
-          <label htmlFor="pCollege">College or dorm</label>
-          <input id="pCollege" maxLength={60} list="colleges" placeholder="Optional" value={college} onChange={e => setCollege(e.target.value)} />
-          {CONFIG.campusDomain === "ucsc.edu" && <datalist id="colleges">{UCSC_COLLEGES.map(c => <option key={c} value={c} />)}</datalist>}
+          <label htmlFor="pCollege">Dorm, major or year</label>
+          <input id="pCollege" maxLength={60} placeholder="Optional, e.g. Junior, Biology" value={college} onChange={e => setCollege(e.target.value)} />
         </div>
         <label className="check full"><input type="checkbox" checked={alerts} onChange={e => setAlerts(e.target.checked)} /> Email me about seat requests and approvals</label>
         {err && <p className="err">{err}</p>}

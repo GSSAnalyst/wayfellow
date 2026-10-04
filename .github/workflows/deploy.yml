@@ -31,10 +31,8 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-          VITE_CAMPUS_DOMAIN: ${{ vars.VITE_CAMPUS_DOMAIN || 'ucsc.edu' }}
-          VITE_CAMPUS_NAME: ${{ vars.VITE_CAMPUS_NAME || 'UCSC' }}
-          VITE_CAMPUS_LAT: ${{ vars.VITE_CAMPUS_LAT || '36.9914' }}
-          VITE_CAMPUS_LNG: ${{ vars.VITE_CAMPUS_LNG || '-122.0609' }}
+          # Set the repo variable VITE_DEMO to 1 to publish the demo (sample data) even when keys are set.
+          VITE_DEMO: ${{ vars.VITE_DEMO }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

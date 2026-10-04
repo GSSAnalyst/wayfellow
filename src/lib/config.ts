@@ -1,13 +1,15 @@
+import type { LatLng } from "./types";
+
 const env = import.meta.env;
 
 export const CONFIG = {
   supabaseUrl: (env.VITE_SUPABASE_URL as string | undefined) ?? "",
   supabaseAnonKey: (env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "",
-  campusDomain: String(env.VITE_CAMPUS_DOMAIN ?? "ucsc.edu").toLowerCase().replace(/^@/, ""),
-  campusName: String(env.VITE_CAMPUS_NAME ?? "UCSC"),
-  campusCenter: [Number(env.VITE_CAMPUS_LAT ?? 36.9914), Number(env.VITE_CAMPUS_LNG ?? -122.0609)] as [number, number],
 };
 
-export const IS_LIVE = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
+/** VITE_DEMO=1 (see .env.demo) forces demo mode even when Supabase keys are set, for a shareable preview. */
+export const IS_LIVE = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) && env.VITE_DEMO !== "1";
 
-export const UCSC_COLLEGES = ["Cowell", "Stevenson", "Crown", "Merrill", "Porter", "Kresge", "Oakes", "Rachel Carson", "College Nine", "John R. Lewis", "Graduate Student Commons"];
+/** Map view before a student sets their area: the whole continental US. */
+export const US_CENTER: LatLng = [39.5, -98.35];
+export const US_ZOOM = 4;

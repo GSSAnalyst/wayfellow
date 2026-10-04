@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { CONFIG } from "../lib/config";
+import { useApp } from "../lib/app";
+import { US_CENTER, US_ZOOM } from "../lib/config";
 import type { LatLng } from "../lib/types";
 
 export interface MapRoute {
@@ -29,6 +30,7 @@ export function RideMap({ routes, height = 360, onSelect, onPick, picked, classN
   picked?: LatLng | null;
   className?: string;
 }) {
+  const { area } = useApp();
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const layer = useRef<L.LayerGroup | null>(null);
@@ -37,7 +39,7 @@ export function RideMap({ routes, height = 360, onSelect, onPick, picked, classN
 
   useEffect(() => {
     if (!box.current || map.current) return;
-    const m = L.map(box.current, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }).setView(CONFIG.campusCenter, 10);
+    const m = L.map(box.current, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }).setView(area ? [area.lat, area.lng] : US_CENTER, area ? 10 : US_ZOOM);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 18,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -51,6 +53,8 @@ export function RideMap({ routes, height = 360, onSelect, onPick, picked, classN
     const ro = new ResizeObserver(() => m.invalidateSize());
     ro.observe(box.current);
     return () => { ro.disconnect(); m.remove(); map.current = null; };
+    // Start view only; routes and pins move the map after that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

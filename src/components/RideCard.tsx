@@ -1,5 +1,8 @@
+import type { CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { CATEGORY_LABEL, money, num, perSeat, relText, whenText } from "../lib/format";
+import { useTilt } from "../lib/motion";
+import { CATEGORY_LABEL, num, priceText, relText, seatPrice, whenText } from "../lib/format";
+import { SchoolName } from "../lib/schools";
 import type { Ride, SeatRequest } from "../lib/types";
 import { Avatar } from "./Bits";
 import { CategoryIcon } from "./Icons";
@@ -15,24 +18,29 @@ export function SeatBar({ seats, taken }: { seats: number; taken: number }) {
   );
 }
 
-export function RideCard({ ride, meId, myReq, badge, highlight, onHover }: {
+export function RideCard({ ride, meId, myReq, badge, highlight, onHover, index = 0 }: {
   ride: Ride;
   meId?: string | null;
   myReq?: SeatRequest;
   badge?: string;
   highlight?: boolean;
   onHover?: (id: string | null) => void;
+  /** Position in the list, for the staggered entrance. */
+  index?: number;
 }) {
+  const tilt = useTilt<HTMLAnchorElement>();
   const offer = ride.kind === "offer";
   const mine = !!meId && ride.owner_id === meId;
   const seats = num(ride.seats) || 1;
-  const price = perSeat(ride);
+  const price = seatPrice(ride);
   const ownerName = mine ? "You" : ride.owner?.display_name || "A student";
 
   return (
     <Link
+      ref={tilt}
       to={`/ride/${ride.id}`}
-      className={"card" + (mine ? " mine" : "") + (highlight ? " hl" : "")}
+      className={"card tilt" + (mine ? " mine" : "") + (highlight ? " hl" : "")}
+      style={{ "--i": Math.min(index, 12) } as CSSProperties}
       onMouseEnter={() => onHover?.(ride.id)}
       onMouseLeave={() => onHover?.(null)}
       onFocus={() => onHover?.(ride.id)}
@@ -53,7 +61,7 @@ export function RideCard({ ride, meId, myReq, badge, highlight, onHover }: {
       <div className="stats">
         {offer ? (
           <>
-            <div className="price"><b>{price != null ? money(price) : "Ask"}</b><span>{price != null ? "per seat, car full" : "driver will set the split"}</span></div>
+            <div className="price"><b>{priceText(price)}</b><span>{price ? "per seat" : price === 0 ? "no charge" : "for the price"}</span></div>
             <SeatBar seats={seats} taken={ride.taken} />
           </>
         ) : (
@@ -66,7 +74,7 @@ export function RideCard({ ride, meId, myReq, badge, highlight, onHover }: {
       <div className="foot">
         <div className="driver">
           <Avatar name={ownerName} id={ride.owner_id} size={28} />
-          <div><b>{ownerName}</b><small>{ride.owner?.college || (offer ? "Driver" : "Rider")}</small></div>
+          <div><b>{ownerName}</b><small>{ride.owner?.school ? <SchoolName domain={ride.owner.school} /> : ride.owner?.college || (offer ? "Driver" : "Rider")}</small></div>
         </div>
         {myReq ? <span className={"status " + myReq.status}>{STATUS_TEXT[myReq.status]}</span> : <span className="go">View ride →</span>}
       </div>
