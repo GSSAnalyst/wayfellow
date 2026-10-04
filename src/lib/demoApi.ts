@@ -1,4 +1,4 @@
-import { CONFIG } from "./config";
+import { haversineMiles } from "./geo";
 import type { Api, Me, Message, Participant, Profile, ProfileStats, Review, Ride, RideInput, SeatRequest, Trip } from "./types";
 
 /**
@@ -17,8 +17,8 @@ interface DB {
   ratings: Review[];
 }
 
-const KEY = "wayfellow-demo-v2";
-const ME: Me = { id: "demo-me", email: "you@" + CONFIG.campusDomain };
+const KEY = "wayfellow-demo-v4";
+const ME: Me = { id: "demo-me", email: "you@ucsc.edu" };
 const uid = (p: string) => p + Math.random().toString(36).slice(2, 9);
 
 function at(days: number, h: number, m = 0) {
@@ -29,27 +29,31 @@ function at(days: number, h: number, m = 0) {
 }
 
 function seed(): DB {
-  const base = { mpg: null, gas_price: null, pickup_note: null, route: null } as const;
+  const base = { price: null, pickup_note: null, route: null } as const;
   const rides: StoredRide[] = [
-    { ...base, id: "s1", owner_id: "maya", kind: "offer", category: "airport", origin: "East Remote Lot", destination: "SFO Terminal 2", origin_lat: 36.9907, origin_lng: -122.0537, dest_lat: 37.6164, dest_lng: -122.3858, depart_at: at(2, 6, 30), seats: 3, miles: 82, mpg: 32, gas_price: 4.9, note: "Early flight crowd. One carry-on plus a backpack each.", pickup_note: "By the bus stop shelter" },
-    { ...base, id: "s2", owner_id: "jordan", kind: "offer", category: "trip", origin: "Crown College", destination: "Yosemite Valley", origin_lat: 37.0003, origin_lng: -122.0548, dest_lat: 37.7456, dest_lng: -119.5936, depart_at: at(4, 7), seats: 4, miles: 205, mpg: 28, gas_price: 4.9, note: "Day hike to Mist Trail, back by 10pm. Snacks on me." },
+    { ...base, id: "s1", owner_id: "maya", kind: "offer", category: "airport", origin: "East Remote Lot", destination: "SFO Terminal 2", origin_lat: 36.9907, origin_lng: -122.0537, dest_lat: 37.6164, dest_lng: -122.3858, depart_at: at(2, 6, 30), seats: 3, miles: 82, price: 15, note: "Early flight crowd. One carry-on plus a backpack each.", pickup_note: "By the bus stop shelter" },
+    { ...base, id: "s2", owner_id: "jordan", kind: "offer", category: "trip", origin: "Crown College", destination: "Yosemite Valley", origin_lat: 37.0003, origin_lng: -122.0548, dest_lat: 37.7456, dest_lng: -119.5936, depart_at: at(4, 7), seats: 4, miles: 205, price: 25, note: "Day hike to Mist Trail, back by 10pm. Snacks on me." },
     { ...base, id: "s3", owner_id: "aiden", kind: "want", category: "home", origin: "Campus", destination: "Fresno", origin_lat: 36.9978, origin_lng: -122.0553, dest_lat: 36.7378, dest_lng: -119.7871, depart_at: at(9, 15), seats: 1, miles: 150, note: "Heading home for the long weekend. Happy to cover my share and play DJ." },
-    { ...base, id: "s4", owner_id: "priya", kind: "offer", category: "errand", origin: "Quarry Plaza", destination: "Costco, Santa Cruz", origin_lat: 36.9978, origin_lng: -122.0553, dest_lat: 36.9855, dest_lng: -121.9845, depart_at: at(1, 17, 30), seats: 2, miles: 8, mpg: 30, gas_price: 4.9, note: "Bulk snack run. Trunk space for two carts." },
-    { ...base, id: "s5", owner_id: ME.id, kind: "offer", category: "airport", origin: "Porter College", destination: "San José Airport (SJC)", origin_lat: 36.9944, origin_lng: -122.0651, dest_lat: 37.3639, dest_lng: -121.9289, depart_at: at(3, 14), seats: 3, miles: 35, mpg: 34, gas_price: 4.9, note: "Thanksgiving flights. Room for medium suitcases.", pickup_note: "Porter circle" },
-    { ...base, id: "s6", owner_id: "jordan", kind: "offer", category: "trip", origin: "Campus", destination: "Monterey Bay Aquarium", origin_lat: 36.9978, origin_lng: -122.0553, dest_lat: 36.6182, dest_lng: -121.9019, depart_at: at(-5, 10), seats: 3, miles: 44, mpg: 28, gas_price: 4.8, note: "Aquarium day!" },
-    { ...base, id: "s7", owner_id: "maya", kind: "offer", category: "event", origin: "East Remote Lot", destination: "Chase Center, San Francisco", origin_lat: 36.9907, origin_lng: -122.0537, dest_lat: 37.768, dest_lng: -122.3877, depart_at: at(6, 16), seats: 2, miles: 78, mpg: 32, gas_price: 4.9, note: "Concert night. Leaving right after the show, back around 1am." },
+    { ...base, id: "s4", owner_id: "priya", kind: "offer", category: "errand", origin: "Quarry Plaza", destination: "Costco, Santa Cruz", origin_lat: 36.9978, origin_lng: -122.0553, dest_lat: 36.9855, dest_lng: -121.9845, depart_at: at(1, 17, 30), seats: 2, miles: 8, price: 0, note: "Bulk snack run. Trunk space for two carts." },
+    { ...base, id: "s5", owner_id: ME.id, kind: "offer", category: "airport", origin: "Porter College", destination: "San José Airport (SJC)", origin_lat: 36.9944, origin_lng: -122.0651, dest_lat: 37.3639, dest_lng: -121.9289, depart_at: at(3, 14), seats: 3, miles: 35, price: 8, note: "Thanksgiving flights. Room for medium suitcases.", pickup_note: "Porter circle" },
+    { ...base, id: "s6", owner_id: "jordan", kind: "offer", category: "trip", origin: "Campus", destination: "Monterey Bay Aquarium", origin_lat: 36.9978, origin_lng: -122.0553, dest_lat: 36.6182, dest_lng: -121.9019, depart_at: at(-5, 10), seats: 3, miles: 44, price: 10, note: "Aquarium day!" },
+    { ...base, id: "s7", owner_id: "maya", kind: "offer", category: "event", origin: "East Remote Lot", destination: "Chase Center, San Francisco", origin_lat: 36.9907, origin_lng: -122.0537, dest_lat: 37.768, dest_lng: -122.3877, depart_at: at(6, 16), seats: 2, miles: 78, price: 12, note: "Concert night. Leaving right after the show, back around 1am." },
+    { ...base, id: "s8", owner_id: "sofia", kind: "offer", category: "home", origin: "UT Austin, West Campus", destination: "Houston", origin_lat: 30.2849, origin_lng: -97.7341, dest_lat: 29.7604, dest_lng: -95.3698, depart_at: at(5, 13), seats: 3, miles: 165, price: 20, note: "Going home for the weekend. Can drop off near the Galleria." },
+    { ...base, id: "s9", owner_id: "marcus", kind: "offer", category: "trip", origin: "Boston University", destination: "New York, Penn Station", origin_lat: 42.3505, origin_lng: -71.1054, dest_lat: 40.7506, dest_lng: -73.9935, depart_at: at(3, 8), seats: 2, miles: 215, price: 30, note: "Leaving early to beat traffic. One stop in New Haven if anyone needs it." },
   ];
   return {
-    v: 2,
+    v: 4,
     profiles: {
-      [ME.id]: { id: ME.id, display_name: "You", college: "Porter", email_alerts: true },
-      maya: { id: "maya", display_name: "Maya", college: "Porter" },
-      jordan: { id: "jordan", display_name: "Jordan", college: "Crown" },
-      aiden: { id: "aiden", display_name: "Aiden", college: "Oakes" },
-      priya: { id: "priya", display_name: "Priya", college: "Cowell" },
+      [ME.id]: { id: ME.id, display_name: "You", college: "Porter", school: "ucsc.edu", email_alerts: true },
+      maya: { id: "maya", display_name: "Maya", college: "Porter", school: "ucsc.edu" },
+      jordan: { id: "jordan", display_name: "Jordan", college: null, school: "stanford.edu" },
+      aiden: { id: "aiden", display_name: "Aiden", college: null, school: "sjsu.edu" },
+      priya: { id: "priya", display_name: "Priya", college: "Cowell", school: "ucsc.edu" },
+      sofia: { id: "sofia", display_name: "Sofia", college: "Junior, Nursing", school: "utexas.edu" },
+      marcus: { id: "marcus", display_name: "Marcus", college: null, school: "bu.edu" },
     },
     rides,
-    contacts: { s1: "Text (831) 555-0142", s2: "Instagram @jordan.drives", s4: "Text (831) 555-0199", s5: "Text me at (831) 555-0107", s6: "Instagram @jordan.drives", s7: "Text (831) 555-0142" },
+    contacts: { s8: "Text (512) 555-0133", s9: "Text (617) 555-0188", s1: "Text (831) 555-0142", s2: "Instagram @jordan.drives", s4: "Text (831) 555-0199", s5: "Text me at (831) 555-0107", s6: "Instagram @jordan.drives", s7: "Text (831) 555-0142" },
     requests: [
       { id: "q1", ride_id: "s2", rider_id: "priya", status: "approved", message: null },
       { id: "q2", ride_id: "s5", rider_id: "priya", status: "approved", message: "Flight at 6pm!" },
@@ -74,13 +78,13 @@ function seed(): DB {
 export function createDemoApi(): Api {
   let db: DB;
   try { db = JSON.parse(localStorage.getItem(KEY) || "null"); } catch { db = null as unknown as DB; }
-  if (!db || db.v !== 2) db = seed();
+  if (!db || db.v !== 4) db = seed();
   const listeners = new Set<() => void>();
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* storage full or blocked */ } };
   const emit = () => { save(); listeners.forEach(fn => fn()); };
   const later = (ms: number, fn: () => void) => window.setTimeout(() => { fn(); emit(); }, ms);
 
-  const owner = (id: string) => { const p = db.profiles[id]; return p ? { display_name: p.display_name, college: p.college } : null; };
+  const owner = (id: string) => { const p = db.profiles[id]; return p ? { display_name: p.display_name, college: p.college, school: p.school ?? null } : null; };
   const taken = (rideId: string) => db.requests.filter(q => q.ride_id === rideId && q.status === "approved").length;
   const full = (r: StoredRide): Ride => ({ ...r, owner: owner(r.owner_id), taken: taken(r.id) });
   const isParticipant = (rideId: string, u: string) => {
@@ -98,7 +102,7 @@ export function createDemoApi(): Api {
     async signOut() {},
 
     async getProfile(id) { return db.profiles[id] ?? null; },
-    async saveProfile(p) { db.profiles[ME.id] = { id: ME.id, ...p }; emit(); },
+    async saveProfile(p) { db.profiles[ME.id] = { id: ME.id, school: "ucsc.edu", ...p }; emit(); },
     async getProfileStats(id): Promise<ProfileStats> {
       const rs = db.ratings.filter(r => r.ratee_id === id);
       const past = (rideId: string) => { const r = db.rides.find(x => x.id === rideId); return !!r && new Date(r.depart_at).getTime() < Date.now(); };
@@ -113,9 +117,12 @@ export function createDemoApi(): Api {
       return db.ratings.filter(r => r.ratee_id === id).sort((a, b) => b.created_at.localeCompare(a.created_at)).map(r => ({ ...r, rater: owner(r.rater_id) }));
     },
 
-    async listRides() {
+    async listRides(near) {
       const cutoff = Date.now() - 6 * 36e5;
-      return db.rides.filter(r => new Date(r.depart_at).getTime() >= cutoff).sort((a, b) => a.depart_at.localeCompare(b.depart_at)).map(full);
+      return db.rides
+        .filter(r => new Date(r.depart_at).getTime() >= cutoff)
+        .filter(r => !near || (r.origin_lat != null && r.origin_lng != null && haversineMiles(near.center, [r.origin_lat, r.origin_lng]) <= near.miles))
+        .sort((a, b) => a.depart_at.localeCompare(b.depart_at)).map(full);
     },
     async getRide(id) { const r = db.rides.find(x => x.id === id); return r ? full(r) : null; },
     async createRide(input: RideInput, contact) {
@@ -173,7 +180,7 @@ export function createDemoApi(): Api {
       if (!isParticipant(rideId, ME.id)) return [];
       const r = db.rides.find(x => x.id === rideId)!;
       const ids = [r.owner_id, ...db.requests.filter(q => q.ride_id === rideId && q.status === "approved").map(q => q.rider_id)];
-      return ids.map(id => ({ id, display_name: db.profiles[id]?.display_name ?? "Student", college: db.profiles[id]?.college ?? null, is_owner: id === r.owner_id }));
+      return ids.map(id => ({ id, display_name: db.profiles[id]?.display_name ?? "Student", college: db.profiles[id]?.college ?? null, school: db.profiles[id]?.school ?? null, is_owner: id === r.owner_id }));
     },
     async listMessages(rideId) {
       if (!isParticipant(rideId, ME.id)) return [];

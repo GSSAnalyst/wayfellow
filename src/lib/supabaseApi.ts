@@ -1,8 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { CONFIG } from "./config";
+import { haversineMiles } from "./geo";
 import type { Api, Me, Message, Participant, Profile, ProfileStats, Review, Ride, RideInput, SeatRequest, Trip, TripRole } from "./types";
 
-const RIDE_SELECT = "*, owner:profiles(display_name, college)";
+const RIDE_SELECT = "*, owner:profiles(display_name, college, school)";
 
 function must<T>({ data, error }: { data: T; error: unknown }): T {
   if (error) throw error;
@@ -17,12 +18,13 @@ export function createSupabaseApi(): Api {
   const toMe = (u: { id: string; email?: string } | null | undefined): Me | null =>
     u ? { id: u.id, email: (u.email || "").toLowerCase() } : null;
 
-  async function counts(): Promise<Record<string, number>> {
-    const rows = must(await sb.rpc("seat_counts")) as { ride_id: string; taken: number }[] | null;
-    return Object.fromEntries((rows || []).map(r => [r.ride_id, Number(r.taken)]));
+  /** Adds approved-seat counts to rides. */
+  async function withTaken(rides: Omit<Ride, "taken">[]): Promise<Ride[]> {
+    if (!rides.length) return [];
+    const rows = must(await sb.rpc("seat_counts", { ids: rides.map(r => r.id) })) as { ride_id: string; taken: number }[] | null;
+    const c = Object.fromEntries((rows || []).map(r => [r.ride_id, Number(r.taken)]));
+    return rides.map(r => ({ ...r, taken: c[r.id] || 0 }));
   }
-  const withTaken = (rides: Omit<Ride, "taken">[], c: Record<string, number>): Ride[] =>
-    rides.map(r => ({ ...r, taken: c[r.id] || 0 }));
 
   const api: Api = {
     mode: "live",
@@ -49,7 +51,7 @@ export function createSupabaseApi(): Api {
     async signOut() { await sb.auth.signOut(); },
 
     async getProfile(id) {
-      return must(await sb.from("profiles").select("id, display_name, college, email_alerts").eq("id", id).maybeSingle()) as Profile | null;
+      return must(await sb.from("profiles").select("id, display_name, college, school, email_alerts").eq("id", id).maybeSingle()) as Profile | null;
     },
     async saveProfile(p) {
       if (!me) throw new Error("not signed in");
@@ -64,17 +66,22 @@ export function createSupabaseApi(): Api {
       return must(await sb.from("ratings").select("*, rater:profiles!ratings_rater_id_fkey(display_name)").eq("ratee_id", id).order("created_at", { ascending: false }).limit(50)) as Review[];
     },
 
-    async listRides() {
+    async listRides(near) {
       const since = new Date(Date.now() - 6 * 36e5).toISOString();
-      const [rides, c] = await Promise.all([
-        sb.from("rides").select(RIDE_SELECT).gte("depart_at", since).order("depart_at").limit(400).then(must),
-        counts(),
-      ]);
-      return withTaken(rides as Omit<Ride, "taken">[], c);
+      let q = sb.from("rides").select(RIDE_SELECT).gte("depart_at", since);
+      if (near) {
+        // Box around the area in the database, then trim the corners to a true radius below.
+        const [lat, lng] = near.center;
+        const dLat = near.miles / 69, dLng = near.miles / (69 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
+        q = q.gte("origin_lat", lat - dLat).lte("origin_lat", lat + dLat).gte("origin_lng", lng - dLng).lte("origin_lng", lng + dLng);
+      }
+      let rides = must(await q.order("depart_at").limit(400)) as Omit<Ride, "taken">[];
+      if (near) rides = rides.filter(r => haversineMiles(near.center, [r.origin_lat!, r.origin_lng!]) <= near.miles);
+      return withTaken(rides);
     },
     async getRide(id) {
-      const [r, c] = await Promise.all([sb.from("rides").select(RIDE_SELECT).eq("id", id).maybeSingle().then(must), counts()]);
-      return r ? withTaken([r as Omit<Ride, "taken">], c)[0] : null;
+      const r = must(await sb.from("rides").select(RIDE_SELECT).eq("id", id).maybeSingle()) as Omit<Ride, "taken"> | null;
+      return r ? (await withTaken([r]))[0] : null;
     },
     async createRide(input: RideInput, contact: string) {
       const row = must(await sb.from("rides").insert(input).select("id").single()) as { id: string };
@@ -86,8 +93,8 @@ export function createSupabaseApi(): Api {
       const roles = must(await sb.rpc("my_trips")) as { ride_id: string; role: TripRole }[] | null;
       if (!roles?.length) return [];
       const ids = roles.map(r => r.ride_id);
-      const [rides, c] = await Promise.all([sb.from("rides").select(RIDE_SELECT).in("id", ids).then(must), counts()]);
-      const byId = new Map(withTaken(rides as Omit<Ride, "taken">[], c).map(r => [r.id, r]));
+      const rides = must(await sb.from("rides").select(RIDE_SELECT).in("id", ids)) as Omit<Ride, "taken">[];
+      const byId = new Map((await withTaken(rides)).map(r => [r.id, r]));
       return roles.filter(r => byId.has(r.ride_id)).map(r => ({ ride: byId.get(r.ride_id)!, role: r.role })) as Trip[];
     },
 
@@ -97,7 +104,7 @@ export function createSupabaseApi(): Api {
       return Object.fromEntries(rows.map(r => [r.ride_id, r]));
     },
     async requestsFor(rideId) {
-      return must(await sb.from("seat_requests").select("id, ride_id, rider_id, status, message, rider:profiles(display_name, college)").eq("ride_id", rideId).order("created_at")) as unknown as SeatRequest[];
+      return must(await sb.from("seat_requests").select("id, ride_id, rider_id, status, message, rider:profiles(display_name, college, school)").eq("ride_id", rideId).order("created_at")) as unknown as SeatRequest[];
     },
     async requestSeat(rideId, message) { must(await sb.from("seat_requests").insert({ ride_id: rideId, message: message || null })); },
     async cancelRequest(id) { must(await sb.from("seat_requests").delete().eq("id", id)); },

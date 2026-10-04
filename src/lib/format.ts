@@ -16,11 +16,12 @@ export function money(n: number | null | undefined) {
   return "$" + (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2).replace(/\.00$/, ""));
 }
 
-/** Gas cost per person when the car is full (driver included). */
-export function perSeat(r: Pick<Ride, "kind" | "miles" | "mpg" | "gas_price" | "seats">) {
-  if (r.kind !== "offer" || !num(r.miles) || !num(r.mpg)) return null;
-  return (num(r.miles) / num(r.mpg)) * num(r.gas_price) / (num(r.seats) + 1);
+/** The driver's asking price per seat, or null if they left it open. */
+export function seatPrice(r: Pick<Ride, "kind" | "price">) {
+  return r.kind === "offer" && r.price != null ? num(r.price) : null;
 }
+
+export const priceText = (p: number | null) => (p == null ? "Ask driver" : p === 0 ? "Free" : money(p));
 
 export function whenText(iso: string) {
   const d = new Date(iso);

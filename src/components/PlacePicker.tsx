@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { CONFIG } from "../lib/config";
-import { reversePlace, searchPlaces, type Place } from "../lib/geo";
+import { useApp } from "../lib/app";
+import { locateMe, reversePlace, searchPlaces, type Place } from "../lib/geo";
 import type { LatLng } from "../lib/types";
 import { IconMap, IconPin } from "./Icons";
 import { RideMap } from "./RideMap";
@@ -15,6 +15,7 @@ export function PlacePicker({ label, value, onChange, placeholder, required }: {
   placeholder?: string;
   required?: boolean;
 }) {
+  const { area, toast } = useApp();
   const id = useId();
   const [results, setResults] = useState<Place[]>([]);
   const [open, setOpen] = useState(false);
@@ -30,11 +31,12 @@ export function PlacePicker({ label, value, onChange, placeholder, required }: {
     const ctl = new AbortController();
     const t = window.setTimeout(async () => {
       setBusy(true);
-      try { setResults(await searchPlaces(q, ctl.signal)); setOpen(true); setActive(-1); }
+      try { setResults(await searchPlaces(q, ctl.signal, area ? [area.lat, area.lng] : null)); setOpen(true); setActive(-1); }
       catch { /* offline or rate limited: free text still works */ }
       finally { setBusy(false); }
     }, 450);
     return () => { window.clearTimeout(t); ctl.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value.label]);
 
   const choose = (p: Place) => { typed.current = false; onChange({ label: p.short.slice(0, 80), lat: p.lat, lng: p.lng }); setOpen(false); };
@@ -42,6 +44,13 @@ export function PlacePicker({ label, value, onChange, placeholder, required }: {
     typed.current = false;
     onChange({ label: "Locating…", lat: p[0], lng: p[1] });
     onChange({ label: await reversePlace(p[0], p[1]), lat: p[0], lng: p[1] });
+  };
+  const [locating, setLocating] = useState(false);
+  const here = async () => {
+    setLocating(true);
+    try { await pick(await locateMe()); }
+    catch (e) { toast((e as Error).message); }
+    finally { setLocating(false); }
   };
 
   return (
@@ -78,7 +87,7 @@ export function PlacePicker({ label, value, onChange, placeholder, required }: {
         </button>
       </div>
       <div className="place-quick">
-        <button type="button" className="chip chip-sm" onClick={() => { typed.current = false; onChange({ label: `${CONFIG.campusName} campus`, lat: CONFIG.campusCenter[0], lng: CONFIG.campusCenter[1] }); }}>{CONFIG.campusName} campus</button>
+        <button type="button" className="chip chip-sm" onClick={here} disabled={locating}><IconPin size={14} />{locating ? "Finding you…" : "Use my location"}</button>
         {value.lat != null && <span className="located-note">Pinned on map</span>}
       </div>
       {open && results.length > 0 && (

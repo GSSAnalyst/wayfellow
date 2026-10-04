@@ -1,12 +1,18 @@
--- Wayfellow: campus ride board
+-- Wayfellow: ride board for students at any US college
 -- Run this whole file once in Supabase: Dashboard > SQL Editor > New query > paste > Run.
--- Safe to re-run. Change ucsc.edu in is_campus() if your campus uses a different email domain.
+-- Safe to re-run.
 
 create extension if not exists pgcrypto;
 
-create or replace function public.is_campus()
+-- A student's school is the root .edu domain of their email: jo@cats.ucsc.edu -> ucsc.edu.
+create or replace function public.school_of(email text)
+returns text language sql immutable
+as $$ select substring(lower(email) from '@(?:[a-z0-9-]+\.)*([a-z0-9-]+\.edu)$') $$;
+
+-- Signed in with a .edu address.
+create or replace function public.is_student()
 returns boolean language sql stable
-as $$ select coalesce(lower(auth.jwt() ->> 'email') like '%@ucsc.edu', false) $$;
+as $$ select public.school_of(auth.jwt() ->> 'email') is not null $$;
 
 -- Tables ---------------------------------------------------------------
 
@@ -18,6 +24,24 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 alter table public.profiles add column if not exists email_alerts boolean not null default true;
+alter table public.profiles add column if not exists school text;
+update public.profiles p set school = public.school_of(u.email) from auth.users u where u.id = p.id and p.school is null;
+
+-- School always comes from the signed-in email, never from what the page sends.
+create or replace function public.set_profile_school()
+returns trigger language plpgsql
+as $$ begin
+  -- Admin edits in the SQL editor have no signed-in email, so they keep the value they set.
+  if tg_op = 'UPDATE' then
+    new.school := coalesce(old.school, public.school_of(auth.jwt() ->> 'email'), new.school);
+  else
+    new.school := coalesce(public.school_of(auth.jwt() ->> 'email'), new.school);
+  end if;
+  return new;
+end $$;
+drop trigger if exists profiles_school on public.profiles;
+create trigger profiles_school before insert or update on public.profiles
+  for each row execute function public.set_profile_school();
 
 create table if not exists public.rides (
   id uuid primary key default gen_random_uuid(),
@@ -29,8 +53,6 @@ create table if not exists public.rides (
   depart_at timestamptz not null,
   seats int not null default 1 check (seats between 1 and 7),
   miles numeric check (miles is null or (miles > 0 and miles < 5000)),
-  mpg numeric check (mpg is null or (mpg > 0 and mpg < 200)),
-  gas_price numeric check (gas_price is null or (gas_price >= 0 and gas_price < 30)),
   note text check (note is null or char_length(note) <= 280),
   created_at timestamptz not null default now()
 );
@@ -40,7 +62,12 @@ alter table public.rides add column if not exists dest_lat double precision;
 alter table public.rides add column if not exists dest_lng double precision;
 alter table public.rides add column if not exists pickup_note text check (pickup_note is null or char_length(pickup_note) <= 120);
 alter table public.rides add column if not exists route jsonb;
+-- Drivers set their own price per seat (null = ask the driver, 0 = free).
+alter table public.rides add column if not exists price numeric check (price is null or (price >= 0 and price < 1000));
+alter table public.rides drop column if exists mpg;
+alter table public.rides drop column if exists gas_price;
 create index if not exists rides_depart_idx on public.rides (depart_at);
+create index if not exists rides_origin_idx on public.rides (origin_lat, origin_lng);
 
 create table if not exists public.ride_contacts (
   ride_id uuid primary key references public.rides(id) on delete cascade,
@@ -95,21 +122,23 @@ as $$
       or exists (select 1 from seat_requests where ride_id = r and rider_id = u and status = 'approved')
 $$;
 
-create or replace function public.seat_counts()
+-- Approved seats for the given rides.
+drop function if exists public.seat_counts();
+create or replace function public.seat_counts(ids uuid[])
 returns table (ride_id uuid, taken bigint)
 language sql stable security definer set search_path = public
 as $$
   select ride_id, count(*) from seat_requests
-  where status = 'approved' and public.is_campus()
+  where status = 'approved' and ride_id = any(ids) and public.is_student()
   group by ride_id
 $$;
 
 -- Everyone in the car (owner plus approved riders). Only visible to people in the car.
 create or replace function public.ride_participants(r uuid)
-returns table (id uuid, display_name text, college text, is_owner boolean)
+returns table (id uuid, display_name text, college text, school text, is_owner boolean)
 language sql stable security definer set search_path = public
 as $$
-  select p.id, p.display_name, p.college, (p.id = rd.owner_id)
+  select p.id, p.display_name, p.college, p.school, (p.id = rd.owner_id)
   from rides rd
   join profiles p on p.id = rd.owner_id
      or p.id in (select rider_id from seat_requests where ride_id = r and status = 'approved')
@@ -136,7 +165,7 @@ as $$
     (select count(*) from rides where owner_id = u and kind = 'offer' and depart_at < now()),
     (select count(*) from seat_requests s join rides r on r.id = s.ride_id
        where s.rider_id = u and s.status = 'approved' and r.depart_at < now())
-  where public.is_campus()
+  where public.is_student()
 $$;
 
 -- Row level security ---------------------------------------------------
@@ -148,17 +177,22 @@ alter table public.seat_requests enable row level security;
 alter table public.messages      enable row level security;
 alter table public.ratings       enable row level security;
 
+-- Policy names from the single-campus version.
 drop policy if exists "campus reads profiles" on public.profiles;
-create policy "campus reads profiles" on public.profiles for select using (public.is_campus());
+drop policy if exists "campus reads rides" on public.rides;
+drop policy if exists "campus reads ratings" on public.ratings;
+
+drop policy if exists "students read profiles" on public.profiles;
+create policy "students read profiles" on public.profiles for select using (public.is_student());
 drop policy if exists "own profile insert" on public.profiles;
-create policy "own profile insert" on public.profiles for insert with check (id = auth.uid() and public.is_campus());
+create policy "own profile insert" on public.profiles for insert with check (id = auth.uid() and public.is_student());
 drop policy if exists "own profile update" on public.profiles;
 create policy "own profile update" on public.profiles for update using (id = auth.uid()) with check (id = auth.uid());
 
-drop policy if exists "campus reads rides" on public.rides;
-create policy "campus reads rides" on public.rides for select using (public.is_campus());
+drop policy if exists "students read rides" on public.rides;
+create policy "students read rides" on public.rides for select using (public.is_student());
 drop policy if exists "post own rides" on public.rides;
-create policy "post own rides" on public.rides for insert with check (owner_id = auth.uid() and public.is_campus());
+create policy "post own rides" on public.rides for insert with check (owner_id = auth.uid() and public.is_student());
 drop policy if exists "edit own rides" on public.rides;
 create policy "edit own rides" on public.rides for update using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 drop policy if exists "delete own rides" on public.rides;
@@ -176,7 +210,7 @@ create policy "rider or owner reads requests" on public.seat_requests for select
   using (rider_id = auth.uid() or public.owns_ride(ride_id));
 drop policy if exists "rider requests seat" on public.seat_requests;
 create policy "rider requests seat" on public.seat_requests for insert
-  with check (rider_id = auth.uid() and status = 'pending' and public.is_campus() and not public.owns_ride(ride_id));
+  with check (rider_id = auth.uid() and status = 'pending' and public.is_student() and not public.owns_ride(ride_id));
 drop policy if exists "owner decides" on public.seat_requests;
 create policy "owner decides" on public.seat_requests for update
   using (public.owns_ride(ride_id)) with check (public.owns_ride(ride_id));
@@ -191,9 +225,9 @@ drop policy if exists "car sends messages" on public.messages;
 create policy "car sends messages" on public.messages for insert
   with check (sender_id = auth.uid() and public.is_participant(ride_id, auth.uid()));
 
--- Ratings: public to campus; only people who shared a finished ride can rate each other.
-drop policy if exists "campus reads ratings" on public.ratings;
-create policy "campus reads ratings" on public.ratings for select using (public.is_campus());
+-- Ratings: visible to students; only people who shared a finished ride can rate each other.
+drop policy if exists "students read ratings" on public.ratings;
+create policy "students read ratings" on public.ratings for select using (public.is_student());
 drop policy if exists "participants rate" on public.ratings;
 create policy "participants rate" on public.ratings for insert with check (
   rater_id = auth.uid()
@@ -206,3 +240,6 @@ create policy "participants rate" on public.ratings for insert with check (
 do $$ begin alter publication supabase_realtime add table public.rides;         exception when duplicate_object then null; end $$;
 do $$ begin alter publication supabase_realtime add table public.seat_requests; exception when duplicate_object then null; end $$;
 do $$ begin alter publication supabase_realtime add table public.messages;      exception when duplicate_object then null; end $$;
+
+-- Old single-campus check, replaced by is_student().
+drop function if exists public.is_campus();

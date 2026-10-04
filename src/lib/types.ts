@@ -9,6 +9,8 @@ export interface Profile {
   id: string;
   display_name: string;
   college: string | null;
+  /** Root .edu domain, set by the database from the student's email. */
+  school?: string | null;
   email_alerts?: boolean;
 }
 
@@ -28,15 +30,15 @@ export interface RideInput {
   depart_at: string;
   seats: number;
   miles: number | null;
-  mpg: number | null;
-  gas_price: number | null;
+  /** Per seat, set by the driver. Null means "ask the driver"; 0 means free. */
+  price: number | null;
   note: string | null;
 }
 
 export interface Ride extends RideInput {
   id: string;
   owner_id: string;
-  owner: Pick<Profile, "display_name" | "college"> | null;
+  owner: Pick<Profile, "display_name" | "college" | "school"> | null;
   taken: number;
   created_at?: string;
 }
@@ -47,10 +49,13 @@ export interface SeatRequest {
   rider_id: string;
   status: RequestStatus;
   message: string | null;
-  rider?: Pick<Profile, "display_name" | "college"> | null;
+  rider?: Pick<Profile, "display_name" | "college" | "school"> | null;
 }
 
-export interface Participant { id: string; display_name: string; college: string | null; is_owner: boolean }
+export interface Participant { id: string; display_name: string; college: string | null; school: string | null; is_owner: boolean }
+
+/** Only rides leaving within `miles` of `center`. */
+export interface Near { center: LatLng; miles: number }
 
 export interface Message { id: string; ride_id: string; sender_id: string; body: string; created_at: string }
 
@@ -76,11 +81,11 @@ export interface Api {
   signOut(): Promise<void>;
 
   getProfile(id: string): Promise<Profile | null>;
-  saveProfile(p: Omit<Profile, "id">): Promise<void>;
+  saveProfile(p: Omit<Profile, "id" | "school">): Promise<void>;
   getProfileStats(id: string): Promise<ProfileStats>;
   listReviews(id: string): Promise<Review[]>;
 
-  listRides(): Promise<Ride[]>;
+  listRides(near?: Near): Promise<Ride[]>;
   getRide(id: string): Promise<Ride | null>;
   createRide(input: RideInput, contact: string): Promise<string>;
   deleteRide(id: string): Promise<void>;

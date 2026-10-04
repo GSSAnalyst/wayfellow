@@ -1,13 +1,15 @@
 import type { LatLng } from "./types";
-import { CONFIG } from "./config";
 
 export interface Place { label: string; short: string; lat: number; lng: number }
 
-/** Search places with OpenStreetMap Nominatim, biased toward the campus area. Public server: keep usage light. */
-export async function searchPlaces(q: string, signal?: AbortSignal): Promise<Place[]> {
-  const [lat, lng] = CONFIG.campusCenter;
-  const box = [lng - 1.5, lat + 1.2, lng + 1.5, lat - 1.2].join(",");
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=us&viewbox=${box}&q=${encodeURIComponent(q)}`;
+/** Search US places with OpenStreetMap Nominatim, preferring ones near `near`. Public server: keep usage light. */
+export async function searchPlaces(q: string, signal?: AbortSignal, near?: LatLng | null): Promise<Place[]> {
+  let bias = "";
+  if (near) {
+    const [lat, lng] = near;
+    bias = "&viewbox=" + [lng - 1.5, lat + 1.2, lng + 1.5, lat - 1.2].join(",");
+  }
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=us${bias}&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, { signal, headers: { "Accept-Language": "en" } });
   if (!res.ok) throw new Error("search failed");
   const rows = (await res.json()) as { display_name: string; name?: string; lat: string; lon: string }[];
@@ -25,6 +27,18 @@ export async function reversePlace(lat: number, lng: number): Promise<string> {
     const j = await res.json();
     return (j.name || (j.display_name || "").split(",").slice(0, 2).join(",") || "Dropped pin").slice(0, 80);
   } catch { return "Dropped pin"; }
+}
+
+/** The device's location from the browser. Rejects with a readable message. */
+export function locateMe(): Promise<LatLng> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("This browser can't share its location. Type a place instead."));
+    navigator.geolocation.getCurrentPosition(
+      p => resolve([+p.coords.latitude.toFixed(4), +p.coords.longitude.toFixed(4)]),
+      e => reject(new Error(e.code === e.PERMISSION_DENIED ? "Location is blocked for this site. Type a place instead." : "Couldn't find your location. Type a place instead.")),
+      { timeout: 10000, maximumAge: 10 * 6e4 },
+    );
+  });
 }
 
 /** Straight-line distance in miles. */
